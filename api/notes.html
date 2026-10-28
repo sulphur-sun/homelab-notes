@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Список заметок</title>
+    <style>
+        body { font-family: sans-serif; margin: 2rem; }
+        .note { border: 1px solid #ccc; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
+        .note h2 { margin: 0 0 .5rem; }
+        .empty { color: #888; font-style: italic; }
+    </style>
+</head>
+<body>
+    <h1>Заметки</h1>
+
+    {{ if . }}
+        {{ range . }}
+            <div class="note">
+                <h2>{{ .Name }}</h2>
+                <p>{{ .Text }}</p>
+            </div>
+        {{ end }}
+    {{ else }}
+        <p class="empty">Заметок пока нет.</p>
+    {{ end }}
+</body>
+</html>

@@ -3,3 +3,5 @@ output.json
 *.exe
 files/
 .env
+start.bat
+todo
