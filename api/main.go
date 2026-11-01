@@ -16,71 +16,33 @@ type Note struct {
 	Text string
 }
 
+var client = &http.Client{
+	Timeout: 5 * time.Second,
+}
+var tmpl = template.Must(template.ParseGlob("templates/*.html"))
+
 func writeNote(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		tmpl, err := template.ParseFiles("new_note.html")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			println(err)
-		}
-		tmpl.Execute(w, nil)
+		tmpl.ExecuteTemplate(w, "new_note.html", nil)
 	} else {
 		name := r.FormValue("name")
 		text := r.FormValue("text")
 		log.Printf("form: name=%q text=%q", name, text)
 		note := Note{name, text}
-		data, err := json.Marshal(note)
-		log.Printf("marshaled: %s (err=%v)", string(data), err)
+		resp, err := dbPost("http://localhost:8091/save", note)
 		if err != nil {
-			println(err)
-		} else {
-			request, err := http.NewRequest("POST", "http://localhost:8091/save", bytes.NewReader(data))
-			request.Header.Set("Content-Type", "application/json")
-			if err != nil {
-				println(err)
-			} else {
-				http.DefaultClient.Do(request)
-			}
+			http.Error(w, "upstream: "+err.Error(), http.StatusBadGateway)
+			return
 		}
+		log.Printf("%s", resp)
+		http.Redirect(w, r, "/notes", http.StatusSeeOther)
 	}
-	http.Redirect(w, r, "/notes", http.StatusSeeOther)
 }
 
 func listNotes(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles("notes.html")
+	body, err := dbGet("http://localhost:8091/notes")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	request, err := http.NewRequest("GET", "http://localhost:8091/notes", nil)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	request.Header.Add("Accept", "application/json")
-	resp, err := client.Do(request)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		http.Error(w, "upstream error: "+resp.Status, http.StatusBadGateway)
-		fmt.Println(io.ReadAll(resp.Body))
-		return
-	}
-
-	body, err := io.ReadAll(resp.Body)
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		fmt.Println(err)
+		http.Error(w, "upstream: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 
@@ -91,11 +53,54 @@ func listNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	tmpl.Execute(w, notes)
+	tmpl.ExecuteTemplate(w, "notes.html", notes)
+}
+
+func dbGet(endpoint string) ([]byte, error) {
+	request, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Add("Accept", "application/json")
+
+	return makeRequest(request)
+}
+
+func dbPost(endpoint string, note Note) ([]byte, error) {
+	data, err := json.Marshal(note)
+	if err != nil {
+		return nil, fmt.Errorf("dbPost: %w", err)
+	}
+
+	request, err := http.NewRequest("POST", endpoint, bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("dbPost: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	return makeRequest(request)
+}
+
+func makeRequest(request *http.Request) ([]byte, error) {
+	resp, err := client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("makeRequest: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("makeRequest: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("upstream: %s", body)
+		return nil, fmt.Errorf("status: %s", resp.Status)
+	}
+	return body, nil
 }
 
 func main() {
 	http.HandleFunc("/new", writeNote)
 	http.HandleFunc("/notes", listNotes)
-	http.ListenAndServe(":8090", nil)
+	log.Fatal(http.ListenAndServe(":8090", nil))
 }
