@@ -9,11 +9,13 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"uuid"
 )
 
 type Note struct {
 	Name string
 	Text string
+	Id   uuid.UUID
 }
 
 var client = &http.Client{
@@ -28,7 +30,7 @@ func writeNote(w http.ResponseWriter, r *http.Request) {
 		name := r.FormValue("name")
 		text := r.FormValue("text")
 		log.Printf("form: name=%q text=%q", name, text)
-		note := Note{name, text}
+		note := Note{name, text, uuid.Nil()}
 		resp, err := dbPost("http://localhost:8091/save", note)
 		if err != nil {
 			http.Error(w, "upstream: "+err.Error(), http.StatusBadGateway)

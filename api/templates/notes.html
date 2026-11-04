@@ -18,6 +18,12 @@
             <div class="note">
                 <h2>{{ .Name }}</h2>
                 <p>{{ .Text }}</p>
+
+                <form action="http://localhost:8091/delete/{{ .Id }}" method="POST"
+                    onsubmit="return confirm('Удалить эту заметку?');"
+                    style="display:inline">
+                    <button type="submit" class="btn btn-danger">Удалить</button>
+                </form>
             </div>
         {{ end }}
     {{ else }}

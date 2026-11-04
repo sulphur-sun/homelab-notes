@@ -1,4 +1,4 @@
-use axum::{Json, Router, extract::{self, State}, routing::post, routing::get};
+use axum::{Json, Router, extract::{self, State, Path}, routing::post, routing::get, response::Redirect};
 use tokio;
 use uuid::Uuid;
 use std::{fs::{self, create_dir_all}, path::PathBuf};
@@ -9,11 +9,14 @@ use serde::{Deserialize, Serialize};
 struct Note{
     Name: String,
     Text: String,
+    Id: Uuid,
 }
 
-async fn store_note(State(data_dir): State<PathBuf>, extract::Json(payload): extract::Json<Note>){
+async fn store_note(State(data_dir): State<PathBuf>, extract::Json(mut payload): extract::Json<Note>){
+    let uuid = Uuid::new_v4();
+    payload.Id = uuid;
     let note = serde_json::to_vec(&payload).unwrap();
-    let filename = format!("{}.json", Uuid::new_v4()); 
+    let filename = format!("{}.json", uuid); 
     let note_path = data_dir.join(filename);
     fs::write(note_path, note).unwrap();    
 } 
@@ -37,6 +40,13 @@ async fn list_notes(State(data_dir): State<PathBuf>) -> Json<Vec<Note>>{
     Json(data)
 }
 
+async fn delete_note(State(data_dir):State<PathBuf>, Path(id): Path<Uuid>) -> Redirect {
+    let filename = format!("{}.json", id);
+    let file = data_dir.join(filename);
+    tokio::fs::remove_file(file).await.unwrap();
+    Redirect::to("http://localhost:8090/notes")
+}
+
 fn app() -> Router {
     dotenvy::dotenv().ok();
     let dbdir = env::var("DB_DIR").unwrap();
@@ -46,7 +56,8 @@ fn app() -> Router {
 
     Router::new()
         .route("/save", post(store_note)).with_state(data_dir.clone())
-        .route("/notes", get(list_notes)).with_state(data_dir)
+        .route("/notes", get(list_notes)).with_state(data_dir.clone())
+        .route("/delete/{id}", post(delete_note)).with_state(data_dir)
 }
 
 #[tokio::main]
