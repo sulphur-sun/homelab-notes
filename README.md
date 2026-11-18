@@ -54,13 +54,13 @@
 
 ```
 .
-├── go-api/
+├── api/
 │   ├── main.go
 │   ├── templates/
 │   │   ├── new_note.html
 │   │   └── notes.html
 │   └── go.mod
-├── rust-storage/
+├── db/
 │   ├── src/
 │   │   └── main.rs
 │   ├── Cargo.toml
