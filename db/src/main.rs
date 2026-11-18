@@ -44,7 +44,7 @@ async fn delete_note(State(data_dir):State<PathBuf>, Path(id): Path<Uuid>) -> Re
     let filename = format!("{}.json", id);
     let file = data_dir.join(filename);
     tokio::fs::remove_file(file).await.unwrap();
-    Redirect::to("http://localhost:8090/notes")
+    Redirect::to("http://192.168.0.10:8090/notes")
 }
 
 fn app() -> Router {

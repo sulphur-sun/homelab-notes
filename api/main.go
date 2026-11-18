@@ -31,7 +31,7 @@ func writeNote(w http.ResponseWriter, r *http.Request) {
 		text := r.FormValue("text")
 		log.Printf("form: name=%q text=%q", name, text)
 		note := Note{name, text, uuid.Nil()}
-		resp, err := dbPost("http://localhost:8091/save", note)
+		resp, err := dbPost("http://192.168.0.10:8091/save", note)
 		if err != nil {
 			http.Error(w, "upstream: "+err.Error(), http.StatusBadGateway)
 			return
@@ -42,7 +42,7 @@ func writeNote(w http.ResponseWriter, r *http.Request) {
 }
 
 func listNotes(w http.ResponseWriter, r *http.Request) {
-	body, err := dbGet("http://localhost:8091/notes")
+	body, err := dbGet("http://192.168.0.10:8091/notes")
 	if err != nil {
 		http.Error(w, "upstream: "+err.Error(), http.StatusBadGateway)
 		return
