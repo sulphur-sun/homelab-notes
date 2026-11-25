@@ -83,7 +83,7 @@ func (s *Server) dbDel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("%s", resp)
-	http.Redirect(w, r, s.redirectURL("/notes"), http.StatusSeeOther)
+	http.Redirect(w, r, "/notes", http.StatusSeeOther)
 }
 
 func (s *Server) dbGet(endpoint string) ([]byte, error) {
@@ -154,10 +154,6 @@ func NewServer(cfg Config) *Server {
 
 func (s *Server) dbURL(path string) string {
 	return fmt.Sprintf("http://%s:%s%s", s.cfg.Host, s.cfg.DbPort, path)
-}
-
-func (s *Server) redirectURL(path string) string {
-	return fmt.Sprintf("http://%s:%s%s", s.cfg.Host, s.cfg.Port, path)
 }
 
 func main() {
