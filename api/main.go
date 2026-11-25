@@ -8,8 +8,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 	"uuid"
+
+	"github.com/joho/godotenv"
 )
 
 type Note struct {
@@ -18,20 +21,27 @@ type Note struct {
 	Id   uuid.UUID
 }
 
-var client = &http.Client{
-	Timeout: 5 * time.Second,
+type Config struct {
+	Port   string
+	DbPort string
+	Host   string
 }
-var tmpl = template.Must(template.ParseGlob("templates/*.html"))
 
-func writeNote(w http.ResponseWriter, r *http.Request) {
+type Server struct {
+	cfg    Config
+	client *http.Client
+	tmpl   *template.Template
+}
+
+func (s *Server) writeNote(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		tmpl.ExecuteTemplate(w, "new_note.html", nil)
+		s.tmpl.ExecuteTemplate(w, "new_note.html", nil)
 	} else {
 		name := r.FormValue("name")
 		text := r.FormValue("text")
 		log.Printf("form: name=%q text=%q", name, text)
 		note := Note{name, text, uuid.Nil()}
-		resp, err := dbPost("http://192.168.0.10:8091/save", note)
+		resp, err := s.dbPost(s.dbURL("/save"), note)
 		if err != nil {
 			http.Error(w, "upstream: "+err.Error(), http.StatusBadGateway)
 			return
@@ -41,8 +51,8 @@ func writeNote(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func listNotes(w http.ResponseWriter, r *http.Request) {
-	body, err := dbGet("http://192.168.0.10:8091/notes")
+func (s *Server) listNotes(w http.ResponseWriter, r *http.Request) {
+	body, err := s.dbGet(s.dbURL("/notes"))
 	if err != nil {
 		http.Error(w, "upstream: "+err.Error(), http.StatusBadGateway)
 		return
@@ -55,20 +65,38 @@ func listNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	tmpl.ExecuteTemplate(w, "notes.html", notes)
+	s.tmpl.ExecuteTemplate(w, "notes.html", notes)
 }
 
-func dbGet(endpoint string) ([]byte, error) {
+func (s *Server) dbDel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("Id")
+
+	req, err := http.NewRequest(http.MethodDelete, s.dbURL("/delete/"+id), nil)
+	if err != nil {
+		http.Error(w, "upstream: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	resp, err := s.makeRequest(req)
+	if err != nil {
+		http.Error(w, "upstream: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	log.Printf("%s", resp)
+	http.Redirect(w, r, s.redirectURL("/notes"), http.StatusSeeOther)
+}
+
+func (s *Server) dbGet(endpoint string) ([]byte, error) {
 	request, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
 	request.Header.Add("Accept", "application/json")
 
-	return makeRequest(request)
+	return s.makeRequest(request)
 }
 
-func dbPost(endpoint string, note Note) ([]byte, error) {
+func (s *Server) dbPost(endpoint string, note Note) ([]byte, error) {
 	data, err := json.Marshal(note)
 	if err != nil {
 		return nil, fmt.Errorf("dbPost: %w", err)
@@ -80,11 +108,11 @@ func dbPost(endpoint string, note Note) ([]byte, error) {
 	}
 	request.Header.Set("Content-Type", "application/json")
 
-	return makeRequest(request)
+	return s.makeRequest(request)
 }
 
-func makeRequest(request *http.Request) ([]byte, error) {
-	resp, err := client.Do(request)
+func (s *Server) makeRequest(request *http.Request) ([]byte, error) {
+	resp, err := s.client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("makeRequest: %w", err)
 	}
@@ -101,8 +129,47 @@ func makeRequest(request *http.Request) ([]byte, error) {
 	return body, nil
 }
 
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func loadConfig() Config {
+	return Config{
+		Port:   getEnv("GO_PORT", "8090"),
+		DbPort: getEnv("DB_PORT", "8091"),
+		Host:   getEnv("HOST", "localhost"),
+	}
+}
+
+func NewServer(cfg Config) *Server {
+	return &Server{
+		cfg:    cfg,
+		client: &http.Client{Timeout: 5 * time.Second},
+		tmpl:   template.Must(template.ParseGlob("templates/*.html")),
+	}
+}
+
+func (s *Server) dbURL(path string) string {
+	return fmt.Sprintf("http://%s:%s%s", s.cfg.Host, s.cfg.DbPort, path)
+}
+
+func (s *Server) redirectURL(path string) string {
+	return fmt.Sprintf("http://%s:%s%s", s.cfg.Host, s.cfg.Port, path)
+}
+
 func main() {
-	http.HandleFunc("/new", writeNote)
-	http.HandleFunc("/notes", listNotes)
-	log.Fatal(http.ListenAndServe(":8090", nil))
+	godotenv.Load()
+
+	cfg := loadConfig()
+	srv := NewServer(cfg)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/new", srv.writeNote)
+	mux.HandleFunc("/notes", srv.listNotes)
+	mux.HandleFunc("/delete/{Id}", srv.dbDel)
+
+	log.Fatal(http.ListenAndServe(":"+cfg.Port, mux))
 }

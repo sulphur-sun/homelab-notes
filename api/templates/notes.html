@@ -19,7 +19,7 @@
                 <h2>{{ .Name }}</h2>
                 <p>{{ .Text }}</p>
 
-                <form action="http://192.168.0.10:8091/delete/{{ .Id }}" method="POST"
+                <form action="/delete/{{ .Id }}" method="POST"
                     onsubmit="return confirm('Удалить эту заметку?');"
                     style="display:inline">
                     <button type="submit" class="btn btn-danger">Удалить</button>
@@ -30,6 +30,6 @@
         <p class="empty">Заметок пока нет.</p>
     {{ end }}
 
-    <a href="http://192.168.0.10:8090/new" class="btn">new note</a>
+    <a href="/new" class="btn">new note</a>
 </body>
 </html>

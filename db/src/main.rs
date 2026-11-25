@@ -1,4 +1,4 @@
-use axum::{Json, Router, extract::{self, State, Path}, routing::post, routing::get, response::Redirect};
+use axum::{Json, Router, extract::{self, State, Path}, routing::post, routing::get, routing::delete};
 use tokio;
 use uuid::Uuid;
 use std::{fs::{self, create_dir_all}, path::PathBuf};
@@ -12,17 +12,43 @@ struct Note{
     Id: Uuid,
 }
 
-async fn store_note(State(data_dir): State<PathBuf>, extract::Json(mut payload): extract::Json<Note>){
+#[derive(Clone)]
+struct Config {
+    pub host: String,
+    pub db_port: u16,
+    pub db_dir: PathBuf,
+}
+
+impl Config {
+    pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
+        dotenvy::dotenv().ok();
+
+        let host = env::var("HOST")
+            .expect("Переменная окружения HOST должна быть установлена");
+
+        let db_dir_str = env::var("DB_DIR")
+            .expect("Переменная окружения DB_DIR должна быть установлена");
+        let db_port = env::var("DB_PORT")
+            .expect("Переменная окружения DB_PORT должна быть установлена")
+            .parse::<u16>()
+            .expect("DB_PORT должен быть числом от 0 до 65535");
+        let db_dir = PathBuf::from(db_dir_str);
+        
+        Ok(Self {host, db_port, db_dir})
+    }
+}
+
+async fn store_note(State(config): State<Config>, extract::Json(mut payload): extract::Json<Note>){
     let uuid = Uuid::new_v4();
     payload.Id = uuid;
     let note = serde_json::to_vec(&payload).unwrap();
     let filename = format!("{}.json", uuid); 
-    let note_path = data_dir.join(filename);
+    let note_path = config.db_dir.join(filename);
     fs::write(note_path, note).unwrap();    
 } 
 
-async fn list_notes(State(data_dir): State<PathBuf>) -> Json<Vec<Note>>{
-    let mut paths = tokio::fs::read_dir(data_dir).await.unwrap();
+async fn list_notes(State(config): State<Config>) -> Json<Vec<Note>>{
+    let mut paths = tokio::fs::read_dir(config.db_dir).await.unwrap();
     let mut data: Vec<Note> = Vec::new();
 
     loop {
@@ -40,28 +66,29 @@ async fn list_notes(State(data_dir): State<PathBuf>) -> Json<Vec<Note>>{
     Json(data)
 }
 
-async fn delete_note(State(data_dir):State<PathBuf>, Path(id): Path<Uuid>) -> Redirect {
+async fn delete_note(State(config): State<Config>, Path(id): Path<Uuid>) {
     let filename = format!("{}.json", id);
-    let file = data_dir.join(filename);
+    let file = config.db_dir.join(filename);
     tokio::fs::remove_file(file).await.unwrap();
-    Redirect::to("http://192.168.0.10:8090/notes")
 }
 
-fn app() -> Router {
-    dotenvy::dotenv().ok();
-    let dbdir = env::var("DB_DIR").unwrap();
-    let mut data_dir = env::current_dir().unwrap();
-    data_dir.push(dbdir);
-    create_dir_all(&data_dir).unwrap();
-
+fn app(config: Config) -> Router {
     Router::new()
-        .route("/save", post(store_note)).with_state(data_dir.clone())
-        .route("/notes", get(list_notes)).with_state(data_dir.clone())
-        .route("/delete/{id}", post(delete_note)).with_state(data_dir)
+        .route("/save", post(store_note))
+        .route("/notes", get(list_notes))
+        .route("/delete/{id}", delete(delete_note)).with_state(config)
 }
 
 #[tokio::main]
-async fn main() {
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8091").await.unwrap();
-    axum::serve(listener, app()).await.unwrap();
+async fn main() -> Result<(), Box<dyn std::error::Error>>{
+    let config = Config::from_env()?;
+    
+    let data_dir = std::env::current_dir()?.join(&config.db_dir);
+    create_dir_all(&data_dir)?; 
+
+    let addr = format!("{}:{}", config.host, config.db_port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    axum::serve(listener, app(config)).await?;
+    
+    Ok(())
 }
